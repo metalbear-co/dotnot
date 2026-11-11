@@ -1,0 +1,10 @@
+[package]
+name = "dotnot"
+version = "0.1.0"
+edition = "2024"
+license = "BSD-2-Clause"
+authors = ["Gabriela Cristei <cristei.g772@gmail.com>"]
+description = "Tells whether an executable is .NET, or not"
+
+[dependencies]
+thiserror = "2"

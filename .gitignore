@@ -1,0 +1,19 @@
+# Build output, including the fixtures the tests build under target/tmp
+/target/
+
+# A fixture built in place by hand, instead of by the tests
+/tests/fixtures/**/bin/
+/tests/fixtures/**/obj/
+
+# Old rustfmt backups
+**/*.rs.bk
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# Windows shell noise
+Thumbs.db
+Desktop.ini
