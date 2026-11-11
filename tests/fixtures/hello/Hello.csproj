@@ -1,0 +1,11 @@
+<!--
+  The smallest .NET app: its build makes an apphost and an IL .dll, and its single-file
+  publish makes a bundle. The tests copy it to target/tmp and build it there, offline.
+  The target framework follows the installed SDK, whose own packs are all a build needs.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net$(BundledNETCoreAppTargetFrameworkVersion)</TargetFramework>
+  </PropertyGroup>
+</Project>
