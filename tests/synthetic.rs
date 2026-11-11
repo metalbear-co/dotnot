@@ -5,8 +5,8 @@
 
 mod common;
 
-use common::Garbage;
-use dotnot::{DotnetKind, Error, classify, classify_bytes};
+use common::{Garbage, NT_OFFSET, Pe};
+use dotnot::{DotnetKind, Error, PeError, classify, classify_bytes};
 
 /// The bundle signature, from `src/native/corehost/apphost/bundle_marker.c` in dotnet/runtime.
 const SIGNATURE: [u8; 32] = [
@@ -129,4 +129,203 @@ fn a_missing_file_fails_to_open_and_names_the_path() {
         "expected Error::Open for {}, got {error:?}",
         path.display()
     );
+}
+
+fn classified_pe(pe: &Pe) -> DotnetKind {
+    classify_bytes(&pe.bytes()).expect("the hand-built headers are whole")
+}
+
+#[test]
+fn a_pe32_plus_with_a_clr_header_is_a_framework_assembly() {
+    assert_eq!(classified_pe(&Pe::managed()), DotnetKind::FrameworkAssembly);
+}
+
+#[test]
+fn a_pe32_with_a_clr_header_is_a_framework_assembly() {
+    let pe = Pe {
+        magic: 0x10b,
+        ..Pe::managed()
+    };
+    assert_eq!(classified_pe(&pe), DotnetKind::FrameworkAssembly);
+}
+
+#[test]
+fn a_pe_without_a_clr_header_or_a_marker_is_not_dotnet() {
+    assert_eq!(classified_pe(&Pe::native()), DotnetKind::NotDotnet);
+}
+
+#[test]
+fn half_a_clr_directory_is_no_clr_header() {
+    for clr in [(0x2008, 0), (0, 0x48)] {
+        let pe = Pe {
+            clr,
+            ..Pe::native()
+        };
+        assert_eq!(
+            classified_pe(&pe),
+            DotnetKind::NotDotnet,
+            "the directory {clr:x?} needs both an address and a size"
+        );
+    }
+}
+
+/// The CLR header is directory 14, so it exists only when NumberOfRvaAndSizes is at least 15.
+#[test]
+fn a_clr_directory_past_number_of_rva_and_sizes_is_not_read() {
+    let pe = Pe {
+        directory_count: 14,
+        ..Pe::managed()
+    };
+    assert_eq!(classified_pe(&pe), DotnetKind::NotDotnet);
+}
+
+#[test]
+fn a_clr_directory_past_the_optional_header_is_not_read() {
+    let header_without_it = (common::PE32_PLUS_FIXED + common::CLR_DIRECTORY * 8) as u16;
+    let pe = Pe {
+        optional_len: Some(header_without_it),
+        ..Pe::managed()
+    };
+    assert_eq!(classified_pe(&pe), DotnetKind::NotDotnet);
+}
+
+#[test]
+fn a_native_pe_with_the_marker_is_an_apphost() {
+    let mut bytes = Pe::native().bytes();
+    bytes.extend_from_slice(&with_placeholder(16, 0));
+    assert_eq!(
+        classify_bytes(&bytes).expect("the headers are whole"),
+        DotnetKind::Apphost { single_file: false }
+    );
+}
+
+/// An apphost is native, so a CLR header answers without reading the rest of the file.
+#[test]
+fn a_clr_header_settles_it_before_the_marker_scan() {
+    let mut bytes = Pe::managed().bytes();
+    bytes.extend_from_slice(&with_placeholder(16, 0));
+    assert_eq!(
+        classify_bytes(&bytes).expect("the headers are whole"),
+        DotnetKind::FrameworkAssembly
+    );
+}
+
+/// An `MZ` file with no `PE\0\0` where its header points is a DOS program, not a broken PE.
+#[test]
+fn an_mz_file_without_a_pe_signature_is_not_dotnet() {
+    let mut beyond_the_end = Pe::native().bytes();
+    beyond_the_end.truncate(NT_OFFSET);
+    beyond_the_end[0x3c..0x40].copy_from_slice(&0x1000u32.to_le_bytes());
+
+    let mut not_pe = Pe::native().bytes();
+    not_pe[NT_OFFSET..NT_OFFSET + 4].copy_from_slice(b"NE\0\0");
+
+    for (case, bytes) in [
+        ("e_lfanew past the end", beyond_the_end),
+        ("an NE signature", not_pe),
+    ] {
+        assert_eq!(
+            classify_bytes(&bytes).expect("a DOS program isn't malformed"),
+            DotnetKind::NotDotnet,
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn malformed_headers_name_what_is_wrong() {
+    let whole = Pe::native().bytes();
+    let declared = Pe::native().declared_optional_len();
+    let unknown_magic = Pe {
+        magic: 0x107,
+        ..Pe::native()
+    };
+    let one_byte_optional = Pe {
+        optional_len: Some(1),
+        ..Pe::native()
+    };
+    let no_fixed_fields = Pe {
+        optional_len: Some(50),
+        ..Pe::native()
+    };
+    let one_section = Pe {
+        section_count: 1,
+        ..Pe::native()
+    };
+    let nt = NT_OFFSET as u64;
+
+    let cases: [(&str, Vec<u8>, PeError); 7] = [
+        (
+            "cut inside the DOS header",
+            whole[..10].to_vec(),
+            PeError::TruncatedDosHeader,
+        ),
+        (
+            "cut inside the file header",
+            whole[..NT_OFFSET + 10].to_vec(),
+            PeError::TruncatedNtHeaders { offset: nt },
+        ),
+        (
+            "cut inside the optional header",
+            whole[..NT_OFFSET + 24 + 50].to_vec(),
+            PeError::TruncatedNtHeaders { offset: nt },
+        ),
+        (
+            "a ROM image's magic",
+            unknown_magic.bytes(),
+            PeError::UnknownOptionalHeaderMagic { magic: 0x107 },
+        ),
+        (
+            "a 1-byte optional header",
+            one_byte_optional.bytes(),
+            PeError::OptionalHeaderTooSmall { size: 1 },
+        ),
+        (
+            "an optional header without its fixed fields",
+            no_fixed_fields.bytes(),
+            PeError::OptionalHeaderTooSmall { size: 50 },
+        ),
+        (
+            "a section table past the end",
+            one_section.bytes(),
+            PeError::TruncatedSectionTable {
+                offset: nt + 24 + u64::from(declared),
+            },
+        ),
+    ];
+    for (case, bytes, expected) in cases {
+        match classify_bytes(&bytes) {
+            Err(Error::MalformedPe(error)) => assert_eq!(error, expected, "{case}"),
+            other => panic!("{case}: expected Error::MalformedPe({expected:?}), got {other:?}"),
+        }
+    }
+}
+
+/// Every prefix of a PE is either a whole decision or a typed error, never a panic or a
+/// .NET answer the bytes don't support.
+#[test]
+fn every_truncation_of_a_pe_decides_or_reports_malformed_headers() {
+    let bytes = Pe::managed().bytes();
+    for len in 0..=bytes.len() {
+        match classify_bytes(&bytes[..len]) {
+            Ok(DotnetKind::NotDotnet | DotnetKind::FrameworkAssembly)
+            | Err(Error::MalformedPe(_)) => {}
+            other => panic!("the first {len} bytes gave {other:?}"),
+        }
+    }
+}
+
+/// Noise written over the headers can make any answer, but never a panic.
+#[test]
+fn pe_headers_full_of_noise_never_panic() {
+    let mut garbage = Garbage::new(0xbad_c0de);
+    let pristine = Pe::managed().bytes();
+    for _ in 0..5_000 {
+        let mut bytes = pristine.clone();
+        for _ in 0..1 + garbage.next() % 8 {
+            let at = (garbage.next() % bytes.len() as u64) as usize;
+            bytes[at] = garbage.next() as u8;
+        }
+        let _ = classify_bytes(&bytes);
+    }
 }

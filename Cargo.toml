@@ -7,4 +7,6 @@ authors = ["Gabriela Cristei <cristei.g772@gmail.com>"]
 description = "Tells whether an executable is .NET, or not"
 
 [dependencies]
+dataview = "1.0.2"
+pelite = { version = "=0.10.0", default-features = false, features = ["derive_pod", "std"] }
 thiserror = "2"

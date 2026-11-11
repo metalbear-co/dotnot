@@ -16,6 +16,14 @@ pub enum DotnetKind {
         /// offset in front of the marker is nonzero.
         single_file: bool,
     },
+    /// `dotnet` itself: the host that starts `dotnet app.dll` and `dotnet run`.
+    Muxer,
+    /// A PE image with a CLR header: managed code that the CLR loads.
+    ///
+    /// An `.exe` with one is a .NET Framework program, held at process creation. An IL-only
+    /// `.dll` of a .NET (Core / 5+) app has one too, but it never starts on its own: its
+    /// apphost or the muxer starts it, and those are what mirrord classifies.
+    FrameworkAssembly,
     /// Native code, or a file dotnot finds no .NET signal in.
     NotDotnet,
 }

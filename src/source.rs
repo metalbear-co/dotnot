@@ -3,6 +3,7 @@
 //! The classifier reads through [`Source`], so a file is never read whole into memory, and
 //! the same code serves `classify` and `classify_bytes`.
 
+use crate::error::PeError;
 use std::{
     convert::Infallible,
     fs::File,
@@ -57,4 +58,12 @@ impl Source for FileSource {
 pub(crate) enum Failure<E> {
     /// The source failed to read.
     Read(E),
+    /// The file is a PE image whose headers can't be decoded.
+    Pe(PeError),
+}
+
+impl<E> From<PeError> for Failure<E> {
+    fn from(error: PeError) -> Self {
+        Self::Pe(error)
+    }
 }
