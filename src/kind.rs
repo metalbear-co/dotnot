@@ -17,6 +17,9 @@ pub enum DotnetKind {
         single_file: bool,
     },
     /// `dotnet` itself: the host that starts `dotnet app.dll` and `dotnet run`.
+    ///
+    /// Found by its version resource in a PE, and by its built-in usage line in ELF and
+    /// Mach-O, which have no version resource.
     Muxer,
     /// A PE image with a CLR header: managed code that the CLR loads.
     ///

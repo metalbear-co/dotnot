@@ -58,7 +58,10 @@ fn classify_source<S: Source>(source: &mut S) -> Result<DotnetKind, Failure<S::E
         return Ok(DotnetKind::FrameworkAssembly);
     }
 
-    let found = scan::scan(source).map_err(Failure::Read)?;
+    // The usage line names the muxer only where there's no version resource to ask. A script
+    // or a text file can hold the same words, so other formats never look for it.
+    let find_usage = pe.is_none() && is_elf_or_mach_o(source).map_err(Failure::Read)?;
+    let found = scan::scan(source, find_usage).map_err(Failure::Read)?;
     if let Some(header_offset) = found.bundle_header_offset {
         return Ok(DotnetKind::Apphost {
             single_file: header_offset != 0,
@@ -67,11 +70,31 @@ fn classify_source<S: Source>(source: &mut S) -> Result<DotnetKind, Failure<S::E
 
     let is_muxer = match &pe {
         Some(headers) => headers.is_muxer(source).map_err(Failure::Read)?,
-        None => false,
+        None => found.usage,
     };
     Ok(if is_muxer {
         DotnetKind::Muxer
     } else {
         DotnetKind::NotDotnet
     })
+}
+
+/// The file starts with an ELF or a Mach-O magic number: the formats of a Linux or macOS
+/// muxer.
+fn is_elf_or_mach_o<S: Source>(source: &mut S) -> Result<bool, S::Error> {
+    const MAGICS: [[u8; 4]; 7] = [
+        *b"\x7fELF",
+        // Thin Mach-O, 32-bit and 64-bit, little-endian as on x86-64 and arm64.
+        [0xce, 0xfa, 0xed, 0xfe],
+        [0xcf, 0xfa, 0xed, 0xfe],
+        // Thin Mach-O, big-endian.
+        [0xfe, 0xed, 0xfa, 0xce],
+        [0xfe, 0xed, 0xfa, 0xcf],
+        // Universal (fat) Mach-O, whose header is always big-endian, 32-bit and 64-bit.
+        [0xca, 0xfe, 0xba, 0xbe],
+        [0xca, 0xfe, 0xba, 0xbf],
+    ];
+    let mut magic = [0u8; 4];
+    let read = source.read_at(0, &mut magic)?;
+    Ok(read == magic.len() && MAGICS.contains(&magic))
 }

@@ -329,3 +329,73 @@ fn pe_headers_full_of_noise_never_panic() {
         let _ = classify_bytes(&bytes);
     }
 }
+
+/// The muxer's usage line, from its `exe_start` in dotnet/runtime.
+const USAGE: &[u8] = b"Usage: dotnet [path-to-application]";
+
+/// A file that starts with `magic`, then filler, `body`, and more filler.
+fn file_like(magic: &[u8], body: &[u8]) -> Vec<u8> {
+    let mut bytes = magic.to_vec();
+    bytes.extend_from_slice(&[0u8; 200]);
+    bytes.extend_from_slice(body);
+    bytes.extend_from_slice(&[0u8; 200]);
+    bytes
+}
+
+const ELF: &[u8] = b"\x7fELF\x02\x01\x01\0";
+const MACH_O_64: &[u8] = &[0xcf, 0xfa, 0xed, 0xfe];
+const MACH_O_UNIVERSAL: &[u8] = &[0xca, 0xfe, 0xba, 0xbe];
+
+#[test]
+fn an_elf_with_the_usage_line_is_the_muxer() {
+    assert_eq!(classified(&file_like(ELF, USAGE)), DotnetKind::Muxer);
+}
+
+#[test]
+fn a_mach_o_with_the_usage_line_is_the_muxer() {
+    for (case, magic) in [("thin 64-bit", MACH_O_64), ("universal", MACH_O_UNIVERSAL)] {
+        assert_eq!(
+            classified(&file_like(magic, USAGE)),
+            DotnetKind::Muxer,
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn an_elf_without_the_usage_line_or_the_marker_is_not_dotnet() {
+    assert_eq!(
+        classified(&file_like(ELF, b"Usage: dotnet [commands]")),
+        DotnetKind::NotDotnet
+    );
+}
+
+/// A shell script or a README can quote the usage line; only an executable format counts.
+#[test]
+fn the_usage_line_in_a_script_is_not_the_muxer() {
+    assert_eq!(
+        classified(&file_like(b"#!/bin/sh\necho '", USAGE)),
+        DotnetKind::NotDotnet
+    );
+}
+
+/// A PE muxer is told by its version resource, so the line alone doesn't make one.
+#[test]
+fn the_usage_line_in_a_pe_is_not_the_muxer() {
+    let mut bytes = Pe::native().bytes();
+    bytes.extend_from_slice(USAGE);
+    assert_eq!(
+        classify_bytes(&bytes).expect("the headers are whole"),
+        DotnetKind::NotDotnet
+    );
+}
+
+#[test]
+fn an_elf_with_the_marker_is_an_apphost_even_with_the_usage_line() {
+    let mut body = USAGE.to_vec();
+    body.extend_from_slice(&with_placeholder(16, 0));
+    assert_eq!(
+        classified(&file_like(ELF, &body)),
+        DotnetKind::Apphost { single_file: false }
+    );
+}
