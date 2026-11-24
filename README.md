@@ -134,6 +134,7 @@ cargo test
 - **`tests/synthetic.rs`:** hand-built inputs for each rule, its edges, truncation and noise.
 - **`tests/real_binaries.rs`:** a table of real binaries. The muxer on PATH, plus an apphost, a single-file publish and an IL `.dll` built from `tests/fixtures/hello`. On Windows, also RegAsm, InstallUtil, notepad and csc.
 - **The fixture builds offline,** in `target/tmp`: an empty `--source` feed, and `--disable-build-servers`, so nothing downloads and no compiler server outlives the run.
+- **It needs only the packs inside the SDK,** never a warm NuGet cache. The single-file publish is framework-dependent, and the fixture turns off the single-file analyzer, which would pull in the ILLink and runtime packs. To see the run as a fresh machine does, point `NUGET_PACKAGES` at an empty folder.
 - **Without `dotnet` on PATH,** the .NET cases skip and say so. Set `DOTNOT_REQUIRE_DOTNET=1` to make that a failure, as CI should.
 
 ## Layout
