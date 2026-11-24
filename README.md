@@ -123,23 +123,6 @@ The real-binary tests run the muxer, apphost and single-file cases on whichever 
 
 > On Linux, `dotnet` on PATH may be a symlink, which is fine, or a wrapper script, which classifies as `NotDotnet`. Pass the muxer's real path.
 
-## Using it from mirrord
-
-mirrord pins dotnot by git revision, as it pins stork. In mirrord's root `Cargo.toml`:
-
-```toml
-[workspace.dependencies]
-dotnot = { git = "https://github.com/metalbear-co/dotnot.git", rev = "<commit sha>" }
-```
-
-Then in `mirrord/cli/Cargo.toml`, under `[dependencies]` rather than a Windows-only table, since dotnot builds everywhere:
-
-```toml
-dotnot = { workspace = true }
-```
-
-**It adds no crates to mirrord's tree.** pelite is pinned at `=0.10.0`, stork's version, and `dataview` and `thiserror` are already there. dotnot turns on pelite's `std` feature, which its resource parser needs. Cargo unifies features, so stork's pelite gets it too; it adds no crates.
-
 ## Testing
 
 ```sh
