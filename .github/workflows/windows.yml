@@ -1,0 +1,43 @@
+name: Windows checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # The same toolchain mirrord builds this crate with (`PINNED_NIGHTLY` there), as stork pins it.
+  RUST_TOOLCHAIN: nightly-2026-08-13
+  # The real-binary tests must run, not skip, when `dotnet` is missing.
+  DOTNOT_REQUIRE_DOTNET: "1"
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: metalbear-co/setup-rust-toolchain@a8d42d5aa259519dac1faeee20e37c1fb43453a3
+        with:
+          cache: false
+          components: rustfmt, clippy
+          target: x86_64-pc-windows-msvc
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          rustflags: ""
+      - name: Rust cache
+        uses: metalbear-co/rust-cache@d49d62d59c5755dd81754c833186b84a82f895fe # v2.9.1+1
+      # The fixture app builds with the SDK's own runtime and host packs, offline.
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Format
+        run: cargo fmt --check
+      - name: Lint
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Test
+        run: cargo test
