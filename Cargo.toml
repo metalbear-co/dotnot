@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 authors = ["Gabriela Cristei <cristei.g772@gmail.com>"]
 description = "Tells whether an executable is .NET, or not"
+license = "MIT"
 
 [dependencies]
 dataview = "1.0.2"
